@@ -28,7 +28,30 @@ export default function OrderPage() {
         method: 'GET',
       })
       const result = await response.json()
-      setInventory(result.inventory || [])
+      console.log('Raw API response:', result) // Debug log
+      
+      // Parse the body string if it's a Lambda response format
+      let inventoryData
+      if (result.body) {
+        // Lambda response format - parse the body string
+        const parsedBody = JSON.parse(result.body)
+        inventoryData = parsedBody.inventory || []
+      } else {
+        // Direct format
+        inventoryData = result.inventory || []
+      }
+      
+      console.log('Parsed inventory data:', inventoryData) // Debug log
+      
+      // Convert string values to numbers
+      const inventory = inventoryData.map((item: any) => ({
+        ...item,
+        stock: parseInt(item.stock) || 0,
+        reorderThreshold: parseInt(item.reorderThreshold) || 5
+      }))
+      
+      console.log('Final inventory with numbers:', inventory) // Debug log
+      setInventory(inventory)
     } catch (error) {
       console.error('Failed to fetch inventory:', error)
     }
@@ -63,23 +86,46 @@ export default function OrderPage() {
       return
     }
 
+    console.log('Sending order items:', validItems) // Debug log
+    console.log('Order items details:', JSON.stringify(validItems, null, 2)) // Detailed log
+
     try {
+      const orderPayload = { items: validItems }
+      console.log('Order payload:', orderPayload) // Debug log
+      console.log('Order payload JSON:', JSON.stringify(orderPayload, null, 2)) // Detailed log
+      
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_GATEWAY_URL}/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ items: validItems }),
+        body: JSON.stringify(orderPayload),
       })
 
       const result = await response.json()
+      console.log('Order response:', result) // Debug log
 
       if (response.ok) {
-        setMessage(`Order placed successfully! Order ID: ${result.orderId}`)
-        setOrderItems([{ sku: '', qty: 1 }])
-        fetchInventory() // Refresh inventory
+        // Parse the response body if it's in Lambda format
+        let orderData
+        if (result.body) {
+          orderData = JSON.parse(result.body)
+        } else {
+          orderData = result
+        }
+        
+        console.log('Parsed order data:', orderData) // Debug log
+        
+        if (orderData.ok) {
+          setMessage(`Order placed successfully! Order ID: ${orderData.orderId}`)
+          setOrderItems([{ sku: '', qty: 1 }])
+          // Wait a bit for DynamoDB streams to process, then refresh
+          setTimeout(() => fetchInventory(), 2000)
+        } else {
+          setMessage(`Error: ${orderData.error}`)
+        }
       } else {
-        setMessage(`Error: ${result.error}`)
+        setMessage(`Error: ${result.error || 'Failed to place order'}`)
       }
     } catch (error) {
       setMessage('Failed to place order. Please try again.')
