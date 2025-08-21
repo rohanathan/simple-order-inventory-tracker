@@ -53,3 +53,5 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+aws-console-permission.json
